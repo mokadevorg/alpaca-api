@@ -53,6 +53,7 @@ func main() {
 	rem.MakeCreateEndpoint("projects", &Project{})
 	rem.MakeRemoveEndpoint("projects")
 	rem.MakeUpdateEndpoint("projects", &Project{})
+	rem.MakeSearchEndpoint("projects", new([]Project))
 
 	rem.MakeGetEndpoint("categories", &Category{})
 	rem.MakeListEndpoint("categories", new([]Category))
