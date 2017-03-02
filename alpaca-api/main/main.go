@@ -5,11 +5,10 @@ import (
 	"net/http"
 	"encoding/json"
 	"log"
-	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"github.com/mokadevorg/alpaca-api/record"
 	"errors"
-	"fmt"
+	"github.com/mokadevorg/alpaca-api/rest"
 )
 
 type ServerInfo struct {
@@ -28,6 +27,11 @@ type Project struct {
 	Description string 	  `bson:"description" json:"description"`
 }
 
+type Category struct {
+	Id   bson.ObjectId `bson:"_id"  json:"id"`
+	Name string 	   `bson:"name" json:"name"`
+}
+
 func main() {
 	record.InitAlpacaRecord()
 
@@ -43,90 +47,24 @@ func main() {
 		}
 	})
 
-	router.NewRoute().Methods("GET").Path("/api/projects/{id:[0-9a-f]+}").HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			defer manageObjectIdPanic(r.RequestURI, w)
+	rem := rest.RecordEndpointMaker{"api", router, record.AlpacaRecord().DB("alpaca")}
+	rem.MakeGetEndpoint("projects", &Project{})
+	rem.MakeListEndpoint("projects", new([]Project))
+	rem.MakeCreateEndpoint("projects", &Project{})
+	rem.MakeRemoveEndpoint("projects")
+	rem.MakeUpdateEndpoint("projects", &Project{})
 
-			// Set content-type
-			ContentTypeJson(w)
+	rem.MakeGetEndpoint("categories", &Category{})
+	rem.MakeListEndpoint("categories", new([]Category))
+	rem.MakeCreateEndpoint("categories", &Category{})
+	rem.MakeRemoveEndpoint("categories")
+	rem.MakeUpdateEndpoint("categories", &Category{})
+	rem.MakeSearchEndpoint("categories", new([]Category))
 
-			log.Println("GET", r.RequestURI)
 
-			// Get uri vars
-			vars := mux.Vars(r)
-			// Bind collection
-			projects := record.AlpacaRecordCollection("projects")
-			// Get by id
-			var match Project
-			err := projects.FindId(bson.ObjectIdHex(vars["id"])).One(&match) // This panics if Id is not valid
-			// Handle errors
-			if err == mgo.ErrNotFound {
-				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-			} else if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-				log.Fatal(err.Error())
-			} else {
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(&match)
-			}
-		})
-
-	router.NewRoute().Methods("GET").Path("/api/projects").HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			ContentTypeJson(w)
-
-			log.Println("GET", r.RequestURI)
-
-			projects := record.AlpacaRecordCollection("projects")
-			projectList := make([]Project, 0, 10)
-
-			if err := projects.Find(nil).All(&projectList); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-				log.Println("Error listing /api/projects: ", err.Error())
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(projectList)
-		})
-
-	router.NewRoute().Methods("POST").Path("/api/projects").HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			ContentTypeJson(w)
-
-			log.Println("POST", r.RequestURI)
-
-			var project Project
-			if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-				log.Println("Error decoding POST /api/projects: ", err.Error())
-				return
-			}
-
-			if project.IsValid() {
-				project.BuildForInsertion() // Set id
-
-				projects := record.AlpacaRecordCollection("projects")
-				if err := projects.Insert(&project); err != nil {
-					w.WriteHeader(http.StatusInternalServerError)
-					json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-					log.Println("Error inserting /api/projects/create:", err.Error())
-					return
-				}
-
-				var insertedProject Project
-				projects.FindId(project.Id).One(&insertedProject)
-
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(&insertedProject)
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-				json.NewEncoder(w).Encode(&ErrorResponse{ "Name, Description and Category are required" })
-			}
-		})
+	// Also (Example)
+	//projectList := make([]Project, 0, 10)
+	//rem.MakeListEndpoint("projects", &projectList)
 
 
 	router.NewRoute().Methods("OPTIONS").Path("/api/projects").HandlerFunc(
@@ -140,67 +78,6 @@ func main() {
 			log.Println("OPTIONS", r.RequestURI)
 			AllowExternal(w)
 		});
-
-	router.NewRoute().Methods("DELETE").Path("/api/projects/{id:[0-9a-f]+}").HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			defer manageObjectIdPanic(r.RequestURI, w)
-
-			ContentTypeJson(w)
-
-			log.Println("DELETE", r.RequestURI)
-
-			vars := mux.Vars(r)
-			projects := record.AlpacaRecordCollection("projects")
-
-			if err := projects.RemoveId(bson.ObjectIdHex(vars["id"])); err != nil {
-				if err == mgo.ErrNotFound {
-					w.WriteHeader(http.StatusNotFound)
-				} else {
-					w.WriteHeader(http.StatusInternalServerError)
-					log.Println("Unknown error /api/projects", vars["id"], ":", err.Error())
-				}
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-		})
-
-	router.NewRoute().Methods("PUT").Path("/api/projects/{id:[0-9a-f]+}").HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			defer manageObjectIdPanic(r.RequestURI, w)
-
-			ContentTypeJson(w)
-
-			log.Println("PUT", r.RequestURI)
-
-			vars := mux.Vars(r)
-			project, err := getProject(vars["id"])
-			if err != nil {
-				if err == mgo.ErrNotFound {
-					w.WriteHeader(http.StatusNotFound)
-				} else {
-					w.WriteHeader(http.StatusInternalServerError)
-				}
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-				log.Println("Error", r.RequestURI, ":", err.Error())
-				return
-			}
-
-			json.NewDecoder(r.Body).Decode(&project)
-			defer r.Body.Close()
-
-			projects := record.AlpacaRecordCollection("projects")
-
-			if err := projects.UpdateId(project.Id, project); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				errMsg := fmt.Sprintln("Unexpected error:", err.Error())
-				json.NewEncoder(w).Encode(&ErrorResponse{ errMsg })
-				log.Print(errMsg)
-				return
-			}
-
-			w.WriteHeader(http.StatusOK)
-		})
 
 	http.Handle("/", router)
 	http.ListenAndServe("0.0.0.0:8000", nil)
@@ -231,6 +108,19 @@ func getProject(id string) (project *Project, rerr error) {
 	return
 }
 
+func getCategory(id string) (category *Category, rerr error) {
+	categories := record.AlpacaRecordCollection("categories")
+	var categoryContainer Category
+
+	// bson.ObjectIdHex should never panic, if id is well-defined in regex
+	// i.e.: [0-9a-f]{24}, since this matches content+length requirements
+	if err := categories.FindId(bson.ObjectIdHex(id)).One(&categoryContainer); err != nil {
+		rerr = err
+		return
+	}
+	category = &categoryContainer
+	return
+}
 
 func manageObjectIdPanic(endpoint string, w http.ResponseWriter) {
 	if err := recover(); err != nil {
@@ -262,6 +152,10 @@ func ContentTypeJson(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 }
 
+func (p *Project) DocId() bson.ObjectId {
+	return p.Id
+}
+
 func (p *Project) IsValid() bool {
 	if p.Name == "" || p.Description == "" || p.Category == "" {
 		return false
@@ -271,4 +165,19 @@ func (p *Project) IsValid() bool {
 
 func (p *Project) BuildForInsertion() {
 	p.Id = bson.NewObjectId()
+}
+
+func (c *Category) DocId() bson.ObjectId {
+	return c.Id
+}
+
+func (c *Category) IsValid() bool {
+	if c.Name == "" {
+		return false
+	}
+	return true
+}
+
+func (c *Category) BuildForInsertion() {
+	c.Id = bson.NewObjectId()
 }
