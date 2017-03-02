@@ -8,6 +8,8 @@ import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"github.com/mokadevorg/alpaca-api/record"
+	"errors"
+	"fmt"
 )
 
 type ServerInfo struct {
@@ -155,7 +157,7 @@ func main() {
 					w.WriteHeader(http.StatusNotFound)
 				} else {
 					w.WriteHeader(http.StatusInternalServerError)
-					log.Println("Unknown error /api/projects/create/", vars["id"], ":", err.Error())
+					log.Println("Unknown error /api/projects", vars["id"], ":", err.Error())
 				}
 				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
 				return
@@ -163,10 +165,71 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 		})
 
+	router.NewRoute().Methods("PUT").Path("/api/projects/{id:[0-9a-f]+}").HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			defer manageObjectIdPanic(r.RequestURI, w)
+
+			ContentTypeJson(w)
+
+			log.Println("PUT", r.RequestURI)
+
+			vars := mux.Vars(r)
+			project, err := getProject(vars["id"])
+			if err != nil {
+				if err == mgo.ErrNotFound {
+					w.WriteHeader(http.StatusNotFound)
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
+				log.Println("Error", r.RequestURI, ":", err.Error())
+				return
+			}
+
+			json.NewDecoder(r.Body).Decode(&project)
+			defer r.Body.Close()
+
+			projects := record.AlpacaRecordCollection("projects")
+
+			if err := projects.UpdateId(project.Id, project); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				errMsg := fmt.Sprintln("Unexpected error:", err.Error())
+				json.NewEncoder(w).Encode(&ErrorResponse{ errMsg })
+				log.Print(errMsg)
+				return
+			}
+
+			w.WriteHeader(http.StatusOK)
+		})
+
 	http.Handle("/", router)
 	http.ListenAndServe("0.0.0.0:8000", nil)
 }
 
+func getProject(id string) (project *Project, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			switch t := err.(type) {
+			case string:
+				rerr = errors.New(t)
+			case error:
+				rerr = t
+			default:
+				rerr = errors.New("Unknown Panic")
+			}
+		}
+	}()
+
+	projects := record.AlpacaRecordCollection("projects")
+	var projectContainer Project
+
+	if err := projects.FindId(bson.ObjectIdHex(id)).One(&projectContainer); err != nil {
+		rerr = err
+		return
+	}
+	project = &projectContainer
+	return
+}
 
 
 func manageObjectIdPanic(endpoint string, w http.ResponseWriter) {
@@ -189,7 +252,7 @@ func manageObjectIdPanic(endpoint string, w http.ResponseWriter) {
 
 func AllowExternal(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*");
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, DELETE");
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, DELETE, PUT");
 	w.Header().Set("Access-Control-Max-Age", "3600");
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type");
 }
