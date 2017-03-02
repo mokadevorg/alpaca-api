@@ -202,25 +202,16 @@ func (rem *RecordEndpointMaker) MakeUpdateEndpoint(record string, target MongoDo
 func (rem *RecordEndpointMaker) MakeSearchEndpoint(record string, targetList interface{}) {
 	path := makePath(rem.Prefix, record, "_search")
 
-	rem.Router.NewRoute().Methods("POST").Path(path).HandlerFunc(
+	rem.Router.NewRoute().Methods("GET").Path(path).HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			contentTypeJson(w)
 
-			log.Printf("POST %s", r.RequestURI)
+			log.Printf("GET %s", r.RequestURI)
 
-			searchRequest := make(map[string]string)
 			searchQuery := make(bson.M)
-
-			defer r.Body.Close()
-			if err := json.NewDecoder(r.Body).Decode(&searchRequest); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(&ErrorResponse{ err.Error() })
-				log.Printf("Error %s: %s", r.RequestURI, err.Error())
-				return
-			}
-
-			for k, v := range searchRequest {
-				searchQuery[k] = bson.M{"$regex": "^"+v}
+			searchRequest := r.URL.Query()
+			for k, _ := range searchRequest {
+				searchQuery[k] = bson.M{"$regex": "^"+searchRequest.Get(k)}
 			}
 
 			resources := rem.DB.C(record)
