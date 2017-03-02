@@ -49,18 +49,24 @@ func main() {
 
 	rem := rest.RecordEndpointMaker{"api", router, record.AlpacaRecord().DB("alpaca")}
 	rem.MakeGetEndpoint("projects", &Project{})
-	rem.MakeListEndpoint("projects", new([]Project))
+
+	projectList := make([]Project, 0)
+	rem.MakeListEndpoint("projects", &projectList)
 	rem.MakeCreateEndpoint("projects", &Project{})
 	rem.MakeRemoveEndpoint("projects")
 	rem.MakeUpdateEndpoint("projects", &Project{})
+
+	projectList = make([]Project, 0)
 	rem.MakeSearchEndpoint("projects", new([]Project))
 
 	rem.MakeGetEndpoint("categories", &Category{})
-	rem.MakeListEndpoint("categories", new([]Category))
+	categoryList := make([]Category, 0)
+	rem.MakeListEndpoint("categories", &categoryList)
 	rem.MakeCreateEndpoint("categories", &Category{})
 	rem.MakeRemoveEndpoint("categories")
 	rem.MakeUpdateEndpoint("categories", &Category{})
-	rem.MakeSearchEndpoint("categories", new([]Category))
+	categoryList = make([]Category, 0)
+	rem.MakeSearchEndpoint("categories", &categoryList)
 
 
 	// Also (Example)

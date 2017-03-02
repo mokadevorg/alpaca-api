@@ -223,11 +223,6 @@ func (rem *RecordEndpointMaker) MakeSearchEndpoint(record string, targetList int
 			}
 
 			w.WriteHeader(http.StatusOK)
-
-			if targetList == nil {
-				json.NewEncoder(w).Encode(new([]interface{}))
-			} else {
-				json.NewEncoder(w).Encode(targetList)
-			}
+			json.NewEncoder(w).Encode(targetList)
 		})
 }
